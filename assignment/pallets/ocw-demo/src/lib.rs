@@ -63,7 +63,7 @@ pub const FETCH_TIMEOUT_PERIOD: u64 = 3000; // in milli-seconds
 pub const LOCK_TIMEOUT_EXPIRATION: u64 = FETCH_TIMEOUT_PERIOD + 1000; // in milli-seconds
 pub const LOCK_BLOCK_EXPIRATION: u32 = 3; // in block number
 
-pub const FETCH_BLOCK_PERIOD: u32 = 3;
+pub const FETCH_BLOCK_PERIOD: u32 = 3; // every 3 block fetch dot price
 
 /// Based on the above `KeyTypeId` we need to generate a pallet-specific crypto type wrapper.
 /// We can utilize the supported crypto kinds (`sr25519`, `ed25519` and `ecdsa`) and augment
@@ -193,7 +193,7 @@ decl_error! {
 		HttpFetchingError,
 
 		// too soon to get new price
-		OffchainTooSoon,
+		OffchainTooOften,
 
 		// get lock timeout
 		OffchainLockTimeout,
@@ -220,6 +220,11 @@ decl_module! {
 		}
 
 		fn offchain_worker(block_number: T::BlockNumber) {
+			/// offchain worker fetch dot price every `FETCH_BLOCK_PERIOD` blocks
+			/// offchain worker will submit unsigned transaction with signed playload.
+			/// dot price is an oracle data that will be used by other pallet or contracts,
+			/// so it is better don't pay gas and submit unsigned transaction.
+			/// but we need know who submit the price, so signed paylaod is needed.
 			debug::info!("Entering off-chain worker");
 
 			let result = Self::fetch_dot_price(block_number);
@@ -227,14 +232,15 @@ decl_module! {
 			match result {
 				Ok(dot_price) => {
 
-					//let fetch_dot_info = str::from_utf8(&dot_price.priceUsd).map_err(|_|)?;
-
-					let price = I20F12::saturating_from_str(&String::from_utf8(dot_price.priceUsd).unwrap()).unwrap();
-					Self::offchain_unsigned_tx_signed_payload(price);
-					},
+					if let Ok(price_str) = String::from_utf8(dot_price.priceUsd) {
+						let price = I20F12::saturating_from_str(&price_str).unwrap();
+						Self::offchain_unsigned_tx_signed_payload(price);
+					} else {
+						return;
+					}
+				},
 				Err(e) => debug::error!("offchain_worker error: {:?}", e),
-				}
-
+			}
 		}
 	}
 }
@@ -275,9 +281,9 @@ impl<T: Trait> Module<T> {
 		if let Some(Some((block, dot_info))) = s_info.get::<(u32, DotPrice)>() {
 			// gh-info has already been fetched. Return early.
 
-			if number + FETCH_BLOCK_PERIOD > block {
-				debug::info!("cached at {} dot-price: {:?}", block, dot_info);
-				return Err(<Error<T>>::OffchainTooSoon);
+			if number < block + FETCH_BLOCK_PERIOD {
+				debug::info!("current {}, cached at {} dot-price: {:?}", number, block, dot_info);
+				return Err(<Error<T>>::OffchainTooOften);
 			}
 		}
 
