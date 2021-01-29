@@ -109,6 +109,12 @@ impl <T: SigningTypes> SignedPayload<T> for Payload<T::Public> {
 	}
 }
 
+#[derive(Deserialize, Encode, Decode, Default, Clone)]
+struct FetchData {
+	data: DotPrice,
+	timestamp: u64,
+}
+
 // ref: https://serde.rs/container-attrs.html#crate
 #[derive(Deserialize, Encode, Decode, Default, Clone)]
 struct DotPrice {
@@ -117,7 +123,6 @@ struct DotPrice {
 	symbol: Vec<u8>,
 	#[serde(deserialize_with = "de_string_to_bytes")]
 	priceUsd: Vec<u8>,
-	timestamp: u64,
 }
 
 pub fn de_string_to_bytes<'de, D>(de: D) -> Result<Vec<u8>, D::Error>
@@ -134,10 +139,9 @@ impl fmt::Debug for DotPrice {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		write!(
 			f,
-			"{{ symbol: {}, price: {}, timestamp: {} }}",
+			"{{ symbol: {}, price: {} }}",
 			str::from_utf8(&self.symbol).map_err(|_| fmt::Error)?,
 			str::from_utf8(&self.priceUsd).map_err(|_| fmt::Error)?,
-			&self.timestamp
 		)
 	}
 }
@@ -201,7 +205,7 @@ decl_module! {
 		fn deposit_event() = default;
 
 		#[weight = 10000]
-		pub fn submit_number_unsigned_with_signed_payload(origin, payload: Payload<T::Public>,
+		pub fn submit_price_unsigned_with_signed_payload(origin, payload: Payload<T::Public>,
 			_signature: T::Signature) -> DispatchResult
 		{
 			let _ = ensure_none(origin)?;
@@ -222,6 +226,8 @@ decl_module! {
 
 			match result {
 				Ok(dot_price) => {
+
+					//let fetch_dot_info = str::from_utf8(&dot_price.priceUsd).map_err(|_|)?;
 
 					let price = I20F12::saturating_from_str(&String::from_utf8(dot_price.priceUsd).unwrap()).unwrap();
 					Self::offchain_unsigned_tx_signed_payload(price);
@@ -314,12 +320,12 @@ impl<T: Trait> Module<T> {
 
 		let resp_str = str::from_utf8(&resp_bytes).map_err(|_| <Error<T>>::HttpFetchingError)?;
 		// Print out our fetched JSON string
-		debug::info!("{}", resp_str);
+		debug::info!("resp: {}", resp_str);
 
-		// Deserializing JSON to struct, thanks to `serde` and `serde_derive`
-		let dot_info: DotPrice =
+		let fetch_data: FetchData =
 			serde_json::from_str(&resp_str).map_err(|_| <Error<T>>::HttpFetchingError)?;
-		Ok(dot_info)
+
+		Ok(fetch_data.data)
 	}
 
 	/// This function uses the `offchain::http` API to query the remote github information,
@@ -372,7 +378,7 @@ impl<T: Trait> Module<T> {
 		//   - `Some((account, Err(())))`: error occured when sending the transaction
 		if let Some((_, res)) = signer.send_unsigned_transaction(
 			|acct| Payload { price, public: acct.public.clone() },
-			Call::submit_number_unsigned_with_signed_payload
+			Call::submit_price_unsigned_with_signed_payload
 		) {
 			return res.map_err(|_| {
 				debug::error!("Failed in offchain_unsigned_tx_signed_payload");
@@ -398,7 +404,7 @@ impl<T: Trait> frame_support::unsigned::ValidateUnsigned for Module<T> {
 			.build();
 
 		match call {
-			Call::submit_number_unsigned_with_signed_payload(ref payload, ref signature) => {
+			Call::submit_price_unsigned_with_signed_payload(ref payload, ref signature) => {
 				if !SignedPayload::<T>::verify::<T::AuthorityId>(payload, signature.clone()) {
 					return InvalidTransaction::BadProof.into();
 				}
