@@ -55,7 +55,7 @@ pub const NUM_VEC_LEN: usize = 10;
 /// The type to sign and send transactions.
 pub const UNSIGNED_TXS_PRIORITY: u64 = 100;
 
-// We are fetching information from the github public API about organization`substrate-developer-hub`.
+// We are fetching information from the coincap API about dot price.
 pub const HTTP_REMOTE_REQUEST: &str = "https://api.coincap.io/v2/assets/polkadot";
 pub const HTTP_HEADER_USER_AGENT: &str = "hyangl";
 

@@ -19,6 +19,8 @@ use sp_runtime::{
 	Perbill,
 };
 
+use fixed::types::I20F12;
+
 use crate as ocw_demo;
 
 impl_outer_origin! {
@@ -150,66 +152,41 @@ impl ExternalityBuilder {
 	}
 }
 
+
+
 #[test]
 fn submit_number_signed_works() {
 	let (mut t, _, _) = ExternalityBuilder::build();
 	t.execute_with(|| {
 		// call submit_number_signed
-		let num = 32;
+		let price = I20F12::saturating_from_str("19.923").unwrap();
 		let acct: <TestRuntime as system::Trait>::AccountId = Default::default();
-		assert_ok!(OcwDemo::submit_number_signed(
+		let payload = ocw_demo::Payload::<<TestRuntime as system::Trait>::AccountId> {price, public: acct.clone()};
+
+		let sig = payload.sign().unwrap();
+		assert_ok!(OcwDemo::submit_price_unsigned_with_signed_payload(
 			Origin::signed(acct),
-			num
+			payload,
+			sig
 		));
 		// A number is inserted to <Numbers> vec
-		assert_eq!(<Numbers>::get(), vec![num]);
+		assert_eq!(<Prices>::get(), vec![price]);
 		// An event is emitted
 		assert!(System::events()
 			.iter()
-			.any(|er| er.event == TestEvent::ocw_demo(RawEvent::NewNumber(Some(acct), num))));
+			.any(|er| er.event == TestEvent::ocw_demo(RawEvent::NewNumber(Some(acct), price))));
 
 		// Insert another number
-		let num2 = num * 2;
-		assert_ok!(OcwDemo::submit_number_signed(
+		let price2 = I20F12::saturating_from_str("21.339").unwrap();
+		let payload2 = ocw_demo::Payload::<<TestRuntime as system::Trait>::AccountId> {price: price2, public: acct.clone()};
+
+		let sig2 = payload2.sign().unwrap();
+		assert_ok!(OcwDemo::submit_price_unsigned_with_signed_payload(
 			Origin::signed(acct),
-			num2
+			payload2,
+			sig2
 		));
 		// A number is inserted to <Numbers> vec
-		assert_eq!(<Numbers>::get(), vec![num, num2]);
-	});
-}
-
-#[test]
-fn test_offchain_signed_tx() {
-	let (mut t, pool_state, _offchain_state) = ExternalityBuilder::build();
-
-	t.execute_with(|| {
-		// Setup
-		let num: u32 = 32;
-		OcwDemo::offchain_signed_tx(num.into()).unwrap();
-
-		// Verify
-		let tx = pool_state.write().transactions.pop().unwrap();
-		assert!(pool_state.read().transactions.is_empty());
-		let tx = TestExtrinsic::decode(&mut &*tx).unwrap();
-		assert_eq!(tx.signature.unwrap().0, 0);
-		assert_eq!(tx.call, Call::submit_number_signed(num));
-	});
-}
-
-#[test]
-fn test_offchain_unsigned_tx() {
-	let (mut t, pool_state, _offchain_state) = ExternalityBuilder::build();
-
-	t.execute_with(|| {
-		// when
-		let num: u32 = 32;
-		OcwDemo::offchain_unsigned_tx(num.into()).unwrap();
-		// then
-		let tx = pool_state.write().transactions.pop().unwrap();
-		assert!(pool_state.read().transactions.is_empty());
-		let tx = TestExtrinsic::decode(&mut &*tx).unwrap();
-		assert_eq!(tx.signature, None);
-		assert_eq!(tx.call, Call::submit_number_unsigned(num));
+		assert_eq!(<Prices>::get(), vec![price, price2]);
 	});
 }
